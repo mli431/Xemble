@@ -36,3 +36,6 @@ Fraction of features for each base model, if `None`, randomly select sqrt of the
 `random_state`: integer \
 Controls the random resampling of the original dataset (sample wise and feature wise), if `None`, 0. The default is None. \
 `kwargs`: additional hyperparameters
+## References
+De Nard, G., Hediger, S., & Leippold, M. (2020). Subsampled factor models for asset pricing: The rise of Vasa. Journal of Forecasting.
+
