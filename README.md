@@ -6,15 +6,15 @@ Benefits:
 - Robustness: a blend of base linear estimators keep the final model intuitive, yet powerful in reducing dispersion of predictions 
 
 ## Important Concepts
-### Weighted Average
-- Assign weights to predictions from base-estimators according to out of bag error
-- 𝑤_(𝑏𝑎𝑠𝑒_𝑒𝑠𝑡𝑖𝑚𝑎𝑡𝑜𝑟)=𝑒^(− 𝑒𝑟𝑟𝑜𝑟)
+- Weighted Average
+  - Assign weights to predictions from base-estimators according to out of bag error
+  - 𝑤_(𝑏𝑎𝑠𝑒_𝑒𝑠𝑡𝑖𝑚𝑎𝑡𝑜𝑟)=𝑒^(− 𝑒𝑟𝑟𝑜𝑟)
 *error: normalized out of sample RMSE*
-### Weighted Sampling
-- Assign weights to the subset of feature selection
-- Coefficients as sampling weights
-### Model Selection
-- Select base estimators with error lower than existing estimators in the initial pool
+- Weighted Sampling
+  - Assign weights to the subset of feature selection
+  - Coefficients as sampling weights
+- Model Selection
+  - Select base estimators with error lower than existing estimators in the initial pool
 
 ## Methods
 - `fit(X,y)`: Build a bunch of regressors from the training set (X, y).
