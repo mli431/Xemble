@@ -1,6 +1,6 @@
-import pandas as pd
+#import pandas as pd
 import numpy as np
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 
 from sklearn.model_selection import TimeSeriesSplit, cross_validate
 from sklearn.linear_model import Ridge
@@ -8,8 +8,8 @@ from sklearn.svm import SVR
 from sklearn.linear_model import ElasticNet, Lasso, LinearRegression
 from sklearn.metrics import mean_squared_error
 
-from joblib import Parallel
-from sklearn.utils.fixes import delayed
+from sklearn.utils.parallel import Parallel, delayed
+
 
 class RegEnsemble(object):
     '''
@@ -41,6 +41,9 @@ class RegEnsemble(object):
         -------
         None.
 
+
+        Version added: v1.0.2.
+        
         '''
         # Initialization done here
         self.n_estimators = n_estimators
