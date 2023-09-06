@@ -134,6 +134,8 @@ class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
         -------
         self : object
             Fitted Estimator.
+        
+        To be added: sample_weight.
         """
         # formatting estimators
         if isinstance(self.estimator, list) and all([isinstance(mdl, object) for mdl in self.estimator]):
