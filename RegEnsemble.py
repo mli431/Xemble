@@ -1,287 +1,203 @@
-#import pandas as pd
 import numpy as np
-#from matplotlib import pyplot as plt
-
-from sklearn.model_selection import TimeSeriesSplit, cross_validate
-from sklearn.linear_model import Ridge
-from sklearn.svm import SVR
-from sklearn.linear_model import ElasticNet, Lasso, LinearRegression
+import pandas as pd
+from numbers import Integral
 from sklearn.metrics import mean_squared_error
+from sklearn.linear_model import LinearRegression
+from sklearn.base import (
+    clone,
+    MultiOutputMixin,
+    RegressorMixin,
+)
+from sklearn.utils.validation import check_is_fitted
 
-from sklearn.utils.parallel import Parallel, delayed
+class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
+    _parameter_constraints: dict = {
+        "estimator": ["object", "list"],
+        "n_estimators": [Integral],
+        "k_top_models": [Integral],
+        "frac_random_samples": [float],
+        "frac_random_features": [float],
+        "random_state": [Integral]
+    }
+    def __init__(self, 
+                 estimator = LinearRegression(),
+                 n_estimators = 1,
+                 k_top_models = -1, 
+                 frac_random_samples = 1.0, 
+                 frac_random_features = 1.0,
+                 random_state = 0,
+                ):
+        """
+        Sample Code:
 
-
-class RegEnsemble(object):
-    '''
-    Lasso Ensemble
-    '''
-    
-    def __init__(self, model = 'ElasticNet',n_estimators = 20, patience = None, frac_random_sample = 0.75, frac_random_feature = None,random_state = None,**kwargs):
-        '''
+from sklearn.linear_model import Ridge, Lasso, LinearRegression, LassoLars, BayesianRidge, TweedieRegressor, ElasticNet
+from sklearn.datasets import make_regression
+import matplotlib.pyplot as plt
+X, y = make_regression(n_samples=2500, n_features=200, n_informative=15, n_targets=1, noise=1, random_state=42)
+n_estimators = 100
+np.random.seed(0)
+pool = [Ridge(), Lasso(), LinearRegression(), ElasticNet()]
+estimators = []
+for _ in range(n_estimators):
+    estimators.append(clone(np.random.choice(pool, 1)[0]))
+mdl = EnsembleRegressor(estimator = estimators,
+                        n_estimators = n_estimators,
+                        k_top_models = 100,
+                        frac_random_samples = 0.8,
+                        frac_random_features = 0.6,
+                        random_state = 42)
+mdl.fit(X, y)
+yh = mdl.predict(X)
+rmse = mean_squared_error(y, yh, squared = False)
+plt.scatter(y, yh, marker = '.', label = str(round(rmse,1)) + "("+str(sum(np.array(mdl.model_weights_) > 0)) + ")")
+for i in range(5):
+    mdl.enhance(0.4)
+    yh = mdl.predict(X)
+    rmse = mean_squared_error(y, yh, squared = False)
+    plt.scatter(y, yh, marker = '.', label = str(round(rmse,1)) + "("+str(sum(np.array(mdl.model_weights_) > 0)) + ")")
+plt.legend()
+plt.show()
         
-
-        Parameters
-        ----------
-        model: string {'LinearRegression','SVR','Ridge','Lasso','ElasticNet'}
-            The default is 'ElasticNet'.
-        n_estimators : integer
-            Number of estimators. The default is 20.
-        patience: integer
-            Minimum number of estimators to keep at the beginning of the training, if None, use n_estimaotrs. The default is None. 
-        frac_random_sample : float
-            Fraction of data for each base model. The default is 0.75.
-        frac_random_feature : float
-            Fraction of features for each base model, if None, randomly select half of the features. The default is None.
-        random_state: integer
-            Random seed for the random resampling of the original dataset (sample-wise and feature-wise), if None, 0. The default is None.
-        **kwargs : 
-            Adjust hyperparameters of the estimator.
-
-        Returns
-        -------
-        None.
-
-
-        Version added: v1.0.2.
-        
-        '''
-        # Initialization done here
+        """
+        self.estimator = estimator
         self.n_estimators = n_estimators
-        self.modelname = model
-        if model == 'SVR':
-            self.lasso_models = [SVR(kernel='linear',**kwargs) for i in range(n_estimators)]
-        elif model == 'Lasso':
-            self.lasso_models = [Lasso(**kwargs) for i in range(n_estimators)]
-        elif model == 'ElasticNet':
-            self.lasso_models = [ElasticNet(**kwargs) for i in range(n_estimators)]
-        elif model == 'Ridge':
-            self.lasso_models = [Ridge(**kwargs) for i in range(n_estimators)]
-        elif model == 'LinearRegression':
-            self.lasso_models = [LinearRegression(**kwargs) for i in range(n_estimators)]
-        else:
-            raise ValueError('Please select base estimators from LinearRegresssion, Lasso, Ridge, ElasticNet, and SVR')
-        self.frac_random_sample = frac_random_sample
-        self.frac_random_feature = frac_random_feature
-        self.patience = n_estimators if patience is None else patience
-        self.random_state = 0 if random_state is None else random_state
-        self.kwargs = kwargs
+        self.k_top_models = k_top_models
+        self.frac_random_samples  = frac_random_samples
+        self.frac_random_features = frac_random_features
+        self.random_state = random_state
         
-       
     def fit(self, X, y):
-        '''
-        
-
-        Parameters
-        ----------
-        X : data frame or arraly-like of shape (n_samples, n_features), 
-        y : ata frame or array-like of shape (n_samples,).
-
-        Returns
-        -------
-        None.
-
-        '''
-        
-        
-        if not isinstance(X, pd.DataFrame):
-            X = pd.DataFrame(X).add_prefix('feature_')
-        if isinstance(y,pd.Series):
-            y = y.to_frame()
-        elif not isinstance(y, pd.DataFrame):
-            y = pd.DataFrame(y, columns=['y'])
-        
         self.X = X
-        self.X_feature_names = X.columns.to_list()
-        
-        self.n_samples = max(1, int(len(self.X)*self.frac_random_sample))
-        if self.frac_random_feature is None:
-            self.n_features = max(1,int(len(self.X_feature_names)**0.5))
-        else:
-            self.n_features = max(1,int(len(self.X_feature_names)*self.frac_random_feature))
         self.y = y
-        self.y_feature_names = y.columns[0]
-        mwt_all=[]
-        # Initializing the sample datasets for each estimator
-        self._random_dataset = self.__random_sample__()
-        
-        for i, mdl in enumerate(self.lasso_models):
-            model_data = self._random_dataset[f'sample-{i}']
-            mdl.fit(self.X[model_data["selected_features"]].iloc[model_data["selected_samples"]].to_numpy(),       
-                    self.y.iloc[model_data["selected_samples"]].to_numpy())
-            mwt_all.append(self.__mdlwt__(model_data,mdl))
 
-        mwt_all = mwt_all/np.sum(mwt_all)
+        if isinstance(self.estimator, list) and all([isinstance(mdl, object) for mdl in self.estimator]):
+            estimators = self.estimator.copy()
+        elif isinstance(self.estimator, object) and isinstance(self.n_estimators, int) and self.n_estimators > 0:
+            estimators = [clone(self.estimator) for _ in range(self.n_estimators)]
+        else:
+            raise ValueError('estimators should be an object or list, n_estimators should be integral.' + 
+                             f'Input estimator is {type(self.estimator)} and n_estimators is {type(self.n_estimators)}')
+        np.random.seed(self.random_state)
+        self.estimators_ = np.random.permutation(estimators)
+        self.n_estimators_ = len(self.estimators_);
         
-        for i in range(self.patience,self.n_estimators):
-            if mwt_all[i] >= np.min(mwt_all[:self.patience]):
-                mwt_all[i] = np.inf 
+        self.model_weights_ = np.ones(self.n_estimators_)
         
-        self.mwt_all = mwt_all.copy()
-        self.mwt = [np.exp(-x) for x in mwt_all]
-        
-        
-    def refine(self,dev = 0.1):
+        if not hasattr(self.X, 'loc'):
+            self.X_ = pd.DataFrame(data = self.X).add_prefix('feature_')
+        elif not isinstance(self, pd.DataFrame):
+            self.X_ = self.X.copy().to_frame()
+        else:
+            self.X_ = self.X.copy()
 
-        '''
-        Parameters
-        ----------
-        dev : float between 0 and 1, how much deviation of error is allowed between the test base estimator and the average level of top estimators (in patience size).
-        
-        Returns
-        -------
-        None.
+        if not hasattr(self.y, 'loc'):
+            self.y_ = pd.DataFrame(data = self.y, columns = ['y'])
+        elif not isinstance(self, pd.DataFrame):
+            self.y_ = self.y.copy().squeeze()
+        else:
+            self.y_ = self.y.copy()
 
-        '''
-        sorted_idx = self.mwt_all.argsort()
-        err_bs = np.mean(self.mwt_all[sorted_idx][:self.patience])
+        self.n_samples, self.n_features = self.X_.shape
         
-        for i in range(self.n_estimators):
-            if (self.mwt_all[i]-err_bs) >= dev*err_bs:
-                self.mwt_all[i] = np.inf
-        self.mwt = [np.exp(-x) for x in self.mwt_all]
+        self.feature_names_ = self.X_.columns.to_list()
         
-        
-    def __mdlwt__(self,model_data,mdl):
-        
-        yhat = mdl.predict(self.X[model_data["selected_features"]].iloc[model_data["unselected_samples"]].to_numpy())
-        from sklearn.metrics import mean_squared_error
-        mwt = mean_squared_error(self.y.iloc[model_data["unselected_samples"]].to_numpy(),yhat, squared=False)
-        return mwt
-    
-    def __ftwt__(self):
-        fwt = []
-        lasso_models = self.lasso_models.copy()
-        all_importances = np.zeros((1,self.X.shape[1]))
-        all_importances = pd.DataFrame(all_importances,columns=self.X.columns)
-        for i,fmdl in enumerate(lasso_models):
-            fmdl.fit(self.X,self.y)
-            all_importances+= np.abs(fmdl.coef_)
-        all_importances = np.mean(all_importances.to_numpy(), axis=0, dtype=np.float64)
-        return all_importances / np.sum(all_importances)
+        self.n_samples_ = max(int(self.n_samples*self.frac_random_samples), 1)
+        self.n_features_ = max(int(self.n_features * self.frac_random_features), 1)
 
-    def get_cross_validation_scores(self):
-        '''
+        self.random_features_, self.random_samples_, self.oob_samples_ = self._random_choice()
+
+        # fit 
+        self.fitted_estimators_, self.oob_rmse_ = [], []
+        for i in range(self.n_estimators_):
+            mdl = clone(self.estimators_[i])
+            
+            X_inb = self.X_.loc[self.random_samples_[i], self.random_features_[i]]
+            y_inb = self.y_.iloc[self.random_samples_[i]]
+            
+            X_oob = self.X_.loc[self.oob_samples_[i], self.random_features_[i]]
+            y_oob = self.y_.iloc[self.oob_samples_[i]]
+            
+            mdl.fit(X_inb, y_inb)
+            self.fitted_estimators_.append(mdl)
+            
+            yh_oob = mdl.predict(X_oob).reshape(-1,1)
+            
+            self.oob_rmse_.append(mean_squared_error(y_oob, yh_oob, squared=False))
         
+        # n best models
+        if self.k_top_models <= 0:
+            self.k_top_models = self.n_estimators_
 
-        Returns
-        -------
-        RMSE : float
-            Root mean square error
-        MAPE : float
-            Mean absolute percentage error
+        sum_ = np.sum(self.oob_rmse_)
+        min_ = -1.0/min(self.oob_rmse_[:self.k_top_models])
+        self.model_weights_ = [np.exp((sum_-x)/sum_) if (i <= self.k_top_models)or(x < min_) 
+                               else 0.0 for i, x in enumerate(self.oob_rmse_)]
+        return self
 
-        
-        OOB: evaluate the model by calculating out-of-bag error.
-        Identify the set of estimators that consider the record as an out-of-bag sample.
-        Predict using each of the above found estimators.
-        Use average of the predictions as the final output  for this record.
-        '''
-        y_hat = np.empty((len(self.y), len(self.lasso_models)))
-        y_hat[:] = np.nan
-        for i, mdl in enumerate(self.lasso_models):
-            model_data = self._random_dataset[f'sample-{i}']
-            X_i = self.X[model_data["selected_features"]].iloc[model_data["unselected_samples"]].to_numpy()
-            if self.modelname == 'LinearRegression' or self.modelname == 'Ridge':
-                y_hat[model_data["unselected_samples"], i] = mdl.predict(X_i).ravel()
-            else:
-                y_hat[model_data["unselected_samples"], i] = mdl.predict(X_i)
-        
-        self.y_hat = np.nanmean(y_hat, axis = 1).reshape(-1,1)
-        
-        RMSE = np.nanmean((self.y.to_numpy() - self.y_hat)**2)**0.5
-        MAPE = np.nanmean(np.abs((self.y.to_numpy()-self.y_hat)/(self.y.to_numpy())))
-        return RMSE, MAPE
-    
-    def predict(self, X):
-        '''
-        
-
-        Parameters
-        ----------
-        X : data frame or arraly-like of shape (n_samples, n_features), 
-            DESCRIPTION.
-
-        Returns
-        -------
-        Prediction: data frame or array-like of shape (n_samples,).
-           
-
-        '''
-        # prediction of new record/records
-        if isinstance(X,pd.Series):
-            X = X.to_frame().T
-        elif not isinstance(X, pd.DataFrame):
-            X = pd.DataFrame(X).add_prefix('feature_')
-        #print('X',X)
-        y_pred = np.zeros((X.shape[0], len(self.lasso_models)))
-        for i,mdl in enumerate(self.lasso_models):
-            model_data = self._random_dataset[f'sample-{i}']
-            X_i = X[model_data["selected_features"]].to_numpy()
-            y_pred[:,i] = mdl.predict(X_i).ravel()
-        return np.average(y_pred,weights = self.mwt,axis = -1)#y_pred.mean(axis = -1)#.reshape(1,-1)
-    
-    def get_params(self, deep=True):
-        return {"model": self.modelname,
-            "n_estimators": self.n_estimators, "patience": self.patience,
-                "frac_random_sample": self.frac_random_sample,"frac_random_feature": self.frac_random_feature,
-                "random_state": self.random_state,}
-                #"**kwargs": self.kwargs}#,"imp":self.imp}
-    
-
-    def set_params(self, **parameters):
-        for parameter, value in parameters.items():
-            setattr(self, parameter, value)
+    def enhance(self, quantile):
+        """
+        estimators with highest quantile weights, weights <= quantile will be set to 0
+        """
+        weights = [w for w in self.model_weights_ if w > 0]
+        threshold = min(max(weights), 
+                        np.quantile(weights, quantile)) # keep at least one estimators
+        self.model_weights_ = [0 if x <= threshold else x for x in self.model_weights_]
         return self
     
-    def __random_sample__(self):
-        #Create a sample dataset by random sampling from the original dataset X and y.
-        random_sample = {}
-        allindex = [x for x in range(len(self.X))]
+    def predict(self, X):
+        check_is_fitted(self)
+        if not hasattr(X, 'loc'):
+            X = pd.DataFrame(data = X.copy()).add_prefix('feature_')
+        elif not isinstance(X, pd.DataFrame):
+            X = X.copy().to_frame()
+
+        Y_pred = np.asarray(
+            [mdl.predict(X[self.random_features_[i]]).ravel() 
+             for i, mdl in enumerate(self.fitted_estimators_)]
+        ).T
         
-        prob = self.__ftwt__()
+        y_pred = np.average(Y_pred, 
+                            weights = np.tile(self.model_weights_, 
+                                              (X.shape[0], 1)), 
+                            axis = 1)
+        return y_pred
         
         
+    def _get_estimator_coefficients(self, estimator, feature_in, reset):
+        estimator = clone(estimator)
+        if reset:
+            estimator.fit(self.X_[feature_in], self.y_)
         
-        for i in range(self.n_estimators):
-            random_sample[f'sample-{i}'] = {}
-            # random select fraction of data sample
-            # random select fraction of features
-            np.random.seed(10*i+self.random_state)
-            
-            random_sample[f'sample-{i}']["selected_features"] = np.random.choice(self.X_feature_names,
-                                                                                 self.n_features, 
-                                                                                 replace=False,p=prob).tolist()#
-            random_sample[f'sample-{i}']["selected_samples"] = np.sort(np.random.choice([x for x in range(len(self.X))], 
-                                                                               self.n_samples,
-                                                                               replace=False)).tolist()
-            random_sample[f'sample-{i}']["unselected_samples"] = list(set(allindex) - set(random_sample[f'sample-{i}']["selected_samples"]))
-            
-        return random_sample
+        if hasattr(estimator, 'coef_'):
+            if len(estimator.coef_.shape) == 2:
+                coef = abs(estimator.coef_[0])
+            else:
+                coef = abs(estimator.coef_)
+            if len(coef) == len(feature_in):
+                return coef
+            else:
+                raise ValueError(f'length of {estimator.__class__.__name__} coefficients is {len(coef)}, needs {len(feature_in)}')
+        else:
+            raise NotImplementedError(f'estimator {estimator.__class__.__name__} does not have attribute "coef_" to extract importance')
     
-    def feature_importances_(self):
-        """
-        The impurity-based feature importances.
-        The higher, the more important the feature.
-        The importance of a feature is computed as the (normalized)
-        total reduction of the criterion brought by that feature.  It is also
-        known as the Gini importance.
-        Warning: impurity-based feature importances can be misleading for
-        high cardinality features (many unique values). See
-        :func:`sklearn.inspection.permutation_importance` as an alternative.
-        Returns
-        -------
-        feature_importances_ : ndarray of shape (n_features,)
-            The values of this array sum to 1, unless all trees are single node
-            trees consisting of only the root node, in which case it will be an
-            array of zeros.
-        """
-        
-        all_importances = np.zeros((1,self.X.shape[1]))
-        all_importances = pd.DataFrame(all_importances,columns=self.X.columns)
-        for i, mdl in enumerate(self.lasso_models):
-            model_data = self._random_dataset[f'sample-{i}']
-            all_importances[model_data["selected_features"]]+= np.abs(mdl.coef_)
-        
-        
-        all_importances = np.mean(all_importances.to_numpy(), axis=0, dtype=np.float64)
-        return all_importances / np.sum(all_importances)
+    def _feature_importance(self, estimators, features_in, weights, reset):
+        fi_ = {feature: np.zeros(self.n_estimators_) for feature in self.feature_names_}
+        for i, (estimator, feature_in) in enumerate(zip(estimators, features_in)):
+            coef = self._get_estimator_coefficients(estimator, feature_in, reset)
+            for j, feature in enumerate(feature_in):
+                fi_[feature][i] = coef[j]
+        fi_avg = np.array([np.average(x, weights = weights) for x in fi_.values()])
+        return fi_avg/fi_avg.sum()
+    
+    
+    def _random_choice(self):
+        ibf, inb, oob = [], [], []
+        feature_weights = self._feature_importance(self.estimators_, 
+                                                   [self.feature_names_] * self.n_estimators_, 
+                                                   np.ones(self.n_estimators_), True)
+        for i in range(self.n_estimators_):
+            np.random.seed(self.random_state + i + 1)
+            ibf.append(np.random.choice(self.feature_names_, self.n_features_, replace = False).tolist())
+            inb.append(np.random.choice(self.X_.index, self.n_samples_, replace = False).tolist())
+            oob.append([x for x in self.X_.index if x not in inb[-1]])
+        return ibf, inb, oob

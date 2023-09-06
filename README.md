@@ -1,5 +1,5 @@
 # RegEnsemble
-This package is for  combining predictions from simple base estimators for improved performance and reduced variation.\
+This package is for combining predictions from simple base estimators for improved performance and reduced variation.\
 Benefits:
 - Generalizability: aggregate weak learners for better performance
 - Adaptiveness: explore different proportions of features/samples 
@@ -22,6 +22,7 @@ Benefits:
 - `evaluate()`: Evaluate the model by calculating out-of-bag error.
 - `feature_importances_()`: The coefficient-based feature importance. 
 - `set_params()`
+
 ## Parameters
 `model`: string \
 Base estimator *{’LinearRegression’, ‘Lasso’, ’ElasticNet’, ’Ridge’, ’SVR’,}*. The default is `ElasticNet`. \
@@ -36,6 +37,7 @@ Fraction of features for each base model, if `None`, randomly select sqrt of the
 `random_state`: integer \
 Controls the random resampling of the original dataset (sample wise and feature wise), if `None`, 0. The default is None. \
 `kwargs`: additional hyperparameters
+
 ## References
 De Nard, G., Hediger, S., & Leippold, M. (2020). Subsampled factor models for asset pricing: The rise of Vasa. Journal of Forecasting.
 
