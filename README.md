@@ -1,5 +1,5 @@
 # RegEnsemble
-This package is for combining predictions from simple base estimators for improved performance and reduced variation.\
+This package is for combining predictions from simple base estimators for improved performance and reduced variation.
 
 Benefits:
 - Generalizability: aggregate weak learners for better performance.
