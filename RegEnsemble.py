@@ -25,24 +25,24 @@ class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
         replicated `n_estimators` times to generate the "forest". 
         If `estimator` is a list of objects, it defines all the "trees" in this "forest". In 
         this case, `n_estimators` is omitted. 
-        Acceptted estimators should have an attribute `coef_` such as: 
+        Accepted estimators should possess a `coef_` attribute, such as: 
             LinearRegression, Ridge, Lasso, LassoLars, BayesianRidge, TweedieRegressor, ElasticNet
     
     n_estimators : int, default = 1
-        Number of trees in the "forest" when `estimator` is a regression object. Omit when 
+        Number of "trees" in the "forest" when `estimator` is a regression object. Omitted when 
         `estimator` is a list of objects. 
     
     k_top_models : int, default = -1
         Minimum number of estimators to keep, if -1, use `n_estimaotrs`. 
 
     frac_random_samples : float, default = 1.0
-        Fraction of random samples for base estimator. 
+        Fraction of random samples for each base estimator. 
     
     frac_random_features : float, default = 1.0
-        Fraction of random features for base estimator.
+        Fraction of random features for each base estimator.
     
     random_state : int, default = 0
-        Controls the random resampling of the original dataset (sample wise and feature wise).
+        Controls the randomness of resampling of the original dataset (sample-wise and feature-wise).
     
     
     Attributes
@@ -54,7 +54,7 @@ class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
         Root-mean-squared-error of the base estimators for out-of-bag samples.
     
     model_weights_ : list
-        Weights of each base estimators after fitting. 
+        Weights of each base estimator after fitting. 
     
     n_fit_samples_ : int
         Number of samples used to fit each estimator.
@@ -224,7 +224,7 @@ class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
         weights = [w for w in self.model_weights_ if w > 0]
         threshold = min(max(weights), 
                         np.quantile(weights, quantile)) # keep at least one estimators
-        self.model_weights_ = [0 if x <= threshold else x for x in self.model_weights_]
+        self.model_weights_ = [0 if x < threshold else x for x in self.model_weights_]
         return self
     
     def predict(self, X):
