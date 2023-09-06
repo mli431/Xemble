@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import warnings
 from numbers import Integral
 from sklearn.metrics import mean_squared_error
 from sklearn.linear_model import LinearRegression
@@ -8,9 +9,91 @@ from sklearn.base import (
     MultiOutputMixin,
     RegressorMixin,
 )
-from sklearn.utils.validation import check_is_fitted
+from sklearn.utils.validation import check_is_fitted, DataConversionWarning
+#from sklearn.execpetions import DataConversionWarning
+
+warnings.filterwarnings('ignore', category=DataConversionWarning)
 
 class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
+    """
+    This package is for combining predictions from simple base estimators for improved performance and reduced variation.
+
+    Parameters
+    ----------
+    estimator : regression object or list of objects, default = LinearRegression()
+        If `estimator` is a regression object, it is taken as the base estimator and will be 
+        replicated `n_estimators` times to generate the "forest". 
+        If `estimator` is a list of objects, it defines all the "trees" in this "forest". In 
+        this case, `n_estimators` is omitted. 
+        Acceptted estimators should have an attribute `coef_` such as: 
+            LinearRegression, Ridge, Lasso, LassoLars, BayesianRidge, TweedieRegressor, ElasticNet
+    
+    n_estimators : int, default = 1
+        Number of trees in the "forest" when `estimator` is a regression object. Omit when 
+        `estimator` is a list of objects. 
+    
+    k_top_models : int, default = -1
+        Minimum number of estimators to keep, if -1, use `n_estimaotrs`. 
+
+    frac_random_samples : float, default = 1.0
+        Fraction of random samples for base estimator. 
+    
+    frac_random_features : float, default = 1.0
+        Fraction of random features for base estimator.
+    
+    random_state : int, default = 0
+        Controls the random resampling of the original dataset (sample wise and feature wise).
+    
+    
+    Attributes
+    ----------
+    estimators_ : list
+        The list of base estimators.
+    
+    oob_rmse_ : list
+        Root-mean-squared-error of the base estimators for out-of-bag samples.
+    
+    model_weights_ : list
+        Weights of each base estimators after fitting. 
+    
+    n_fit_samples_ : int
+        Number of samples used to fit each estimator.
+    
+    n_fit_features_ : int
+        Number of features used to fit each estimator.
+    
+    random_samples_ : list
+        The list of random sample index used in each estimator in `estimators_` in shape (n_fit_samples_, ).
+    
+    oob_samples_ : list
+        The list of out-of-bag sample index for each estimator in `estimators_` that can be used to 
+        evaluate the out-of-bag performance.
+    
+    random_features_ : list
+        The list of random features used in each estimator in `estimators_` in shape (n_fit_features_, ).
+    
+    
+    Notes
+    -----
+    From the implementation point of view, this is a modified version of random-forest using linear models 
+    as base estimators (trees). 
+
+    Examples
+    --------
+    >>> From RegEnsemble import EnsembleRegressor
+    >>> From sklearn.linear_model import LinearRegression
+    >>> reg = EnsembleRegressor(estimator = LinearRegression(),
+    >>>                         n_estimators = 100,
+    >>>                         k_top_models = 50,
+    >>>                         frac_random_samples = 0.8, 
+    >>>                         frac_random_features = 0.8).fit(X, y).enhance(0.5)
+    >>> reg.score(X, y)
+    
+    Reference
+    ---------
+    De Nard, G., Hediger, S., & Leippold, M. (2020). Subsampled factor models for asset pricing: The rise of Vasa. Journal of Forecasting.
+
+    """
     _parameter_constraints: dict = {
         "estimator": ["object", "list"],
         "n_estimators": [Integral],
@@ -27,38 +110,6 @@ class EnsembleRegressor(MultiOutputMixin, RegressorMixin):
                  frac_random_features = 1.0,
                  random_state = 0,
                 ):
-        """
-        Sample Code:
-
-from sklearn.linear_model import Ridge, Lasso, LinearRegression, LassoLars, BayesianRidge, TweedieRegressor, ElasticNet
-from sklearn.datasets import make_regression
-import matplotlib.pyplot as plt
-X, y = make_regression(n_samples=2500, n_features=200, n_informative=15, n_targets=1, noise=1, random_state=42)
-n_estimators = 100
-np.random.seed(0)
-pool = [Ridge(), Lasso(), LinearRegression(), ElasticNet()]
-estimators = []
-for _ in range(n_estimators):
-    estimators.append(clone(np.random.choice(pool, 1)[0]))
-mdl = EnsembleRegressor(estimator = estimators,
-                        n_estimators = n_estimators,
-                        k_top_models = 100,
-                        frac_random_samples = 0.8,
-                        frac_random_features = 0.6,
-                        random_state = 42)
-mdl.fit(X, y)
-yh = mdl.predict(X)
-rmse = mean_squared_error(y, yh, squared = False)
-plt.scatter(y, yh, marker = '.', label = str(round(rmse,1)) + "("+str(sum(np.array(mdl.model_weights_) > 0)) + ")")
-for i in range(5):
-    mdl.enhance(0.4)
-    yh = mdl.predict(X)
-    rmse = mean_squared_error(y, yh, squared = False)
-    plt.scatter(y, yh, marker = '.', label = str(round(rmse,1)) + "("+str(sum(np.array(mdl.model_weights_) > 0)) + ")")
-plt.legend()
-plt.show()
-        
-        """
         self.estimator = estimator
         self.n_estimators = n_estimators
         self.k_top_models = k_top_models
@@ -66,10 +117,25 @@ plt.show()
         self.frac_random_features = frac_random_features
         self.random_state = random_state
         
+        
     def fit(self, X, y):
-        self.X = X
-        self.y = y
+        """
+        Fit EnsembleRegressor model.
 
+        Parameters
+        ----------
+        X : array-like matrix of shape (n_samples, n_features)
+            Training data.
+
+        y : array-like of shape (n_samples,) or (n_samples, n_targets)
+            Target values. Will be cast to X's dtype if necessary.
+        
+        Returns
+        -------
+        self : object
+            Fitted Estimator.
+        """
+        # formatting estimators
         if isinstance(self.estimator, list) and all([isinstance(mdl, object) for mdl in self.estimator]):
             estimators = self.estimator.copy()
         elif isinstance(self.estimator, object) and isinstance(self.n_estimators, int) and self.n_estimators > 0:
@@ -79,10 +145,11 @@ plt.show()
                              f'Input estimator is {type(self.estimator)} and n_estimators is {type(self.n_estimators)}')
         np.random.seed(self.random_state)
         self.estimators_ = np.random.permutation(estimators)
-        self.n_estimators_ = len(self.estimators_);
-        
-        self.model_weights_ = np.ones(self.n_estimators_)
-        
+        self.n_estimators_ = len(self.estimators_)
+
+        # cast the input into pd.DataFrame for X, pd.Series for y
+        self.X = X
+        self.y = y
         if not hasattr(self.X, 'loc'):
             self.X_ = pd.DataFrame(data = self.X).add_prefix('feature_')
         elif not isinstance(self, pd.DataFrame):
@@ -97,16 +164,18 @@ plt.show()
         else:
             self.y_ = self.y.copy()
 
+        # fitting number of samples and features
         self.n_samples, self.n_features = self.X_.shape
         
         self.feature_names_ = self.X_.columns.to_list()
         
-        self.n_samples_ = max(int(self.n_samples*self.frac_random_samples), 1)
-        self.n_features_ = max(int(self.n_features * self.frac_random_features), 1)
+        self.n_fit_samples_ = max(int(self.n_samples*self.frac_random_samples), 1)
+        self.n_fit_features_ = max(int(self.n_features * self.frac_random_features), 1)
 
+        # random features and samples
         self.random_features_, self.random_samples_, self.oob_samples_ = self._random_choice()
 
-        # fit 
+        # fit each estimator, calculate the out-of-bag RMSE
         self.fitted_estimators_, self.oob_rmse_ = [], []
         for i in range(self.n_estimators_):
             mdl = clone(self.estimators_[i])
@@ -124,7 +193,7 @@ plt.show()
             
             self.oob_rmse_.append(mean_squared_error(y_oob, yh_oob, squared=False))
         
-        # n best models
+        # select k top models by assigning model_weights_
         if self.k_top_models <= 0:
             self.k_top_models = self.n_estimators_
 
@@ -135,9 +204,23 @@ plt.show()
         return self
 
     def enhance(self, quantile):
+        """ 
+        Enhance the model by updating the model_weights_ and keep those models with largest 
+        weights (smallest oob-error), i.e., model weights smaller than threshold will be set 
+        to 0. 
+        
+        Parameters
+        ----------
+        quantile : float between 0.0 to 1.0.
+            The quantile value to define the threshold for truncation. Larger value results 
+            in a more aggressive enhancement, but may cause over-fitting.
+        
+        Return
+        ------
+        self : object
+            Enhanced Estimator. 
         """
-        estimators with highest quantile weights, weights <= quantile will be set to 0
-        """
+
         weights = [w for w in self.model_weights_ if w > 0]
         threshold = min(max(weights), 
                         np.quantile(weights, quantile)) # keep at least one estimators
@@ -145,6 +228,19 @@ plt.show()
         return self
     
     def predict(self, X):
+        """
+        Predict using the ensemble model.
+
+        Parameters
+        ----------
+        X : array-like matrix, shape (n_samples, n_features)
+            Samples.
+
+        Returns
+        -------
+        y_pred : array, shape (n_samples,)
+            Returns predicted values.
+        """
         check_is_fitted(self)
         if not hasattr(X, 'loc'):
             X = pd.DataFrame(data = X.copy()).add_prefix('feature_')
@@ -162,8 +258,57 @@ plt.show()
                             axis = 1)
         return y_pred
         
+    def _feature_importance(self, reset = False):
+        """
+            Retrieve the feature importance for the whole ensemble model in an order of `feature_names_`. 
+
+            Parameters
+            ----------            
+            reset : bool, default = False
+                Use True in the `fit` process. 
+            
+            Returns
+            -------
+            fi_avg_scale : ndarray of shape (n_fit_features_, )
+        """
         
-    def _get_estimator_coefficients(self, estimator, feature_in, reset):
+        fi_ = {feature: np.zeros(self.n_estimators_) for feature in self.feature_names_}
+        if reset:
+            features_in = [self.feature_names_] * self.n_estimators_
+            weights = np.ones(self.n_estimators)
+        else:
+            features_in = self.random_features_
+            weights = self.model_weights_
+        
+        for i, (estimator, feature_in) in enumerate(zip(self.estimators_, features_in)):
+            coef = self._get_estimator_coefficients(estimator, feature_in, reset = reset)
+            for j, feature in enumerate(feature_in):
+                fi_[feature][i] = coef[j]
+        
+        fi_avg = np.array([np.average(x, weights = weights) for x in fi_.values()])
+        fi_avg_scale = fi_avg/fi_avg.sum()
+        return fi_avg_scale
+    
+
+    def _get_estimator_coefficients(self, estimator, feature_in, reset = False):
+        """
+            Helper function to retrieve absolute coefficients of an estimator corresponding to `feature_in`.
+
+            Parameter
+            ---------
+            estimator : object
+                Regression object has an attribute `coef_`.
+            
+            feature_in : list
+                Features to be considered in the estimation.
+            
+            reset : reset : bool, default = False
+                Use True in the `fit` process. 
+            Return
+            ------
+            coef : list
+                List of regression coefficients for each features in feature_in.
+        """
         estimator = clone(estimator)
         if reset:
             estimator.fit(self.X_[feature_in], self.y_)
@@ -180,24 +325,16 @@ plt.show()
         else:
             raise NotImplementedError(f'estimator {estimator.__class__.__name__} does not have attribute "coef_" to extract importance')
     
-    def _feature_importance(self, estimators, features_in, weights, reset):
-        fi_ = {feature: np.zeros(self.n_estimators_) for feature in self.feature_names_}
-        for i, (estimator, feature_in) in enumerate(zip(estimators, features_in)):
-            coef = self._get_estimator_coefficients(estimator, feature_in, reset)
-            for j, feature in enumerate(feature_in):
-                fi_[feature][i] = coef[j]
-        fi_avg = np.array([np.average(x, weights = weights) for x in fi_.values()])
-        return fi_avg/fi_avg.sum()
-    
     
     def _random_choice(self):
+        """
+            Helper function to do random selection of features and samples for each estimators.
+        """
         ibf, inb, oob = [], [], []
-        feature_weights = self._feature_importance(self.estimators_, 
-                                                   [self.feature_names_] * self.n_estimators_, 
-                                                   np.ones(self.n_estimators_), True)
+        feature_weights = self._feature_importance(reset = True)
         for i in range(self.n_estimators_):
             np.random.seed(self.random_state + i + 1)
-            ibf.append(np.random.choice(self.feature_names_, self.n_features_, replace = False).tolist())
-            inb.append(np.random.choice(self.X_.index, self.n_samples_, replace = False).tolist())
+            ibf.append(np.random.choice(self.feature_names_, self.n_fit_features_, replace = False, p = feature_weights).tolist())
+            inb.append(np.random.choice(self.X_.index, self.n_fit_samples_, replace = False).tolist())
             oob.append([x for x in self.X_.index if x not in inb[-1]])
         return ibf, inb, oob
