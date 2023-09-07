@@ -1,3 +1,5 @@
+# Written by Mingshu Li (mli431@gatech.edu) and Qiu Zheng (qzheng60@gatech.edu)
+
 import numpy as np
 import pandas as pd
 import warnings
